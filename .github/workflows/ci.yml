@@ -34,11 +34,11 @@ jobs:
         run: /usr/bin/swift --version
 
       - name: Build and run deterministic checks
-        shell: zsh
+        shell: /bin/zsh {0}
         run: TOPGRADE_EXECUTABLE=/usr/bin/true Scripts/build-app.sh
 
       - name: Verify assembled app
-        shell: zsh
+        shell: /bin/zsh {0}
         run: |
           app_path="$PWD/.build/Topgrade Menu.app"
           test -x "$app_path/Contents/MacOS/TopgradeMenu"
