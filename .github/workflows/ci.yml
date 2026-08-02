@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    name: Build and verify (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-15
+          - macos-15-intel
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Show Swift toolchain
+        run: /usr/bin/swift --version
+
+      - name: Build and run deterministic checks
+        shell: zsh
+        run: TOPGRADE_EXECUTABLE=/usr/bin/true Scripts/build-app.sh
+
+      - name: Verify assembled app
+        shell: zsh
+        run: |
+          app_path="$PWD/.build/Topgrade Menu.app"
+          test -x "$app_path/Contents/MacOS/TopgradeMenu"
+          /usr/bin/plutil -lint "$app_path/Contents/Info.plist"
+          /usr/bin/codesign --verify --strict --verbose=2 "$app_path"
