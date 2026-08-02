@@ -70,6 +70,10 @@ signature, verifies the bundle, registers it as a login item, and opens it. If m
 login startup requires approval, right-click the menu-bar icon and choose **Approve Launch at
 Login…**.
 
+It also maintains a hidden `~/.TopgradeMenu.app` alias to the installed bundle. Ghostty uses this
+alias for a direct, shell-free launch without exposing the runner as a macOS file-open request.
+The uninstaller removes the alias.
+
 Do not run the installer with `sudo`. It installs only for the current user.
 
 ## Terminal selection

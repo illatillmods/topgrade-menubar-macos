@@ -126,15 +126,25 @@ public enum TerminalLaunchSpec {
 
     public static func method(
         for bundleIdentifier: String,
-        runnerPath: String
+        runnerPath: String,
+        homeDirectoryPath: String = NSHomeDirectory()
     ) -> TerminalLaunchMethod {
         switch bundleIdentifier {
         case "com.mitchellh.ghostty":
+            let runnerName = URL(fileURLWithPath: runnerPath).lastPathComponent
+            let runnerAliasPath = URL(
+                fileURLWithPath: homeDirectoryPath,
+                isDirectory: true
+            )
+                .appendingPathComponent(".TopgradeMenu.app", isDirectory: true)
+                .appendingPathComponent("Contents/MacOS", isDirectory: true)
+                .appendingPathComponent(runnerName)
+                .path
             return .applicationArguments([
                 "--title=Topgrade",
-                "-e",
-                runnerPath,
-                "--run-topgrade",
+                "--quit-after-last-window-closed=true",
+                "--shell-integration=detect",
+                "--initial-command=direct:\(runnerAliasPath) --run-topgrade",
             ])
         case "net.kovidgoyal.kitty":
             return .bundledExecutable(

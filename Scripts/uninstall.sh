@@ -2,9 +2,12 @@
 set -euo pipefail
 
 destination_app="$HOME/Applications/Topgrade Menu.app"
+ghostty_alias="$HOME/.TopgradeMenu.app"
+ghostty_alias_target="Applications/Topgrade Menu.app"
 prior_running=false
 register_login=false
 state_changed=false
+ghostty_alias_removed=false
 uninstall_complete=false
 
 if (( EUID == 0 )); then
@@ -13,6 +16,10 @@ if (( EUID == 0 )); then
 fi
 
 if [[ ! -e "$destination_app" ]]; then
+    if [[ -L "$ghostty_alias" \
+        && "$(/usr/bin/readlink "$ghostty_alias")" == "$ghostty_alias_target" ]]; then
+        /bin/rm "$ghostty_alias"
+    fi
     /usr/bin/printf '%s\n' 'Topgrade Menu is not installed in ~/Applications.'
     exit 0
 fi
@@ -28,6 +35,11 @@ fi
 
 restore_state_if_needed() {
     local exit_status=$?
+    if (( exit_status != 0 )) && [[ "$ghostty_alias_removed" == true \
+        && ! -e "$ghostty_alias" \
+        && -e "$destination_app" ]]; then
+        /bin/ln -s "$ghostty_alias_target" "$ghostty_alias" || true
+    fi
     if (( exit_status != 0 )) && [[ "$state_changed" == true && "$uninstall_complete" != true && -x "$destination_app/Contents/MacOS/TopgradeMenu" ]]; then
         if [[ "$register_login" == true ]]; then
             "$destination_app/Contents/MacOS/TopgradeMenu" --register-login || true
@@ -53,6 +65,12 @@ done
 if "$destination_app/Contents/MacOS/TopgradeMenu" --is-running >/dev/null; then
     /usr/bin/printf '%s\n' 'The app did not quit, so it was not moved.' >&2
     exit 1
+fi
+
+if [[ -L "$ghostty_alias" \
+    && "$(/usr/bin/readlink "$ghostty_alias")" == "$ghostty_alias_target" ]]; then
+    /bin/rm "$ghostty_alias"
+    ghostty_alias_removed=true
 fi
 
 timestamp=$(/bin/date +%Y%m%d-%H%M%S)

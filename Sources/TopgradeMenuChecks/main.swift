@@ -154,14 +154,18 @@ check(
     "Terminal, iTerm2, and Warp open the sealed command file"
 )
 check(
-    TerminalLaunchSpec.method(for: ghostty, runnerPath: "/App/Runner")
+    TerminalLaunchSpec.method(
+        for: ghostty,
+        runnerPath: "/Users/Example/Applications/Topgrade Menu.app/Contents/MacOS/TopgradeMenu",
+        homeDirectoryPath: "/Users/Example"
+    )
         == .applicationArguments([
             "--title=Topgrade",
-            "-e",
-            "/App/Runner",
-            "--run-topgrade",
+            "--quit-after-last-window-closed=true",
+            "--shell-integration=detect",
+            "--initial-command=direct:/Users/Example/.TopgradeMenu.app/Contents/MacOS/TopgradeMenu --run-topgrade",
         ]),
-    "Ghostty receives the runner as fixed argv"
+    "Ghostty receives a direct command without a standalone file argument"
 )
 check(
     TerminalLaunchSpec.method(for: "net.kovidgoyal.kitty", runnerPath: "/App/Runner")

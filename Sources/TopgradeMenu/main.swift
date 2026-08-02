@@ -7,6 +7,7 @@ private enum CommandError: LocalizedError {
     case topgradeMissing
     case alreadyRunning
     case lockCreationFailed(String)
+    case terminalControlFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ private enum CommandError: LocalizedError {
             return "Another Topgrade session launched by Topgrade Menu is already running."
         case let .lockCreationFailed(detail):
             return "Could not create the per-user Topgrade lock: \(detail)"
+        case let .terminalControlFailed(detail):
+            return "Could not give Topgrade control of the terminal: \(detail)"
         }
     }
 }
@@ -124,6 +127,77 @@ private func pauseBeforeClosing() {
     _ = readLine()
 }
 
+private struct TerminalForegroundLease {
+    let fileDescriptor: Int32
+    let originalProcessGroup: pid_t
+
+    static func acquire(for process: Process) throws -> TerminalForegroundLease? {
+        let fileDescriptor = STDIN_FILENO
+        guard Darwin.isatty(fileDescriptor) == 1 else {
+            return nil
+        }
+
+        let originalProcessGroup = Darwin.tcgetpgrp(fileDescriptor)
+        guard originalProcessGroup >= 0 else {
+            throw CommandError.terminalControlFailed(currentErrorDescription())
+        }
+
+        let childProcessGroup = Darwin.getpgid(process.processIdentifier)
+        guard childProcessGroup >= 0 else {
+            throw CommandError.terminalControlFailed(currentErrorDescription())
+        }
+
+        guard setForegroundProcessGroup(
+            childProcessGroup,
+            fileDescriptor: fileDescriptor
+        ) else {
+            throw CommandError.terminalControlFailed(currentErrorDescription())
+        }
+
+        if Darwin.kill(-childProcessGroup, SIGCONT) != 0 && errno != ESRCH {
+            let continueError = errno
+            _ = setForegroundProcessGroup(
+                originalProcessGroup,
+                fileDescriptor: fileDescriptor
+            )
+            throw CommandError.terminalControlFailed(errorDescription(continueError))
+        }
+
+        return TerminalForegroundLease(
+            fileDescriptor: fileDescriptor,
+            originalProcessGroup: originalProcessGroup
+        )
+    }
+
+    func restore() throws {
+        guard Self.setForegroundProcessGroup(
+            originalProcessGroup,
+            fileDescriptor: fileDescriptor
+        ) else {
+            throw CommandError.terminalControlFailed(
+                Self.currentErrorDescription()
+            )
+        }
+    }
+
+    private static func setForegroundProcessGroup(
+        _ processGroup: pid_t,
+        fileDescriptor: Int32
+    ) -> Bool {
+        let previousHandler = Darwin.signal(SIGTTOU, SIG_IGN)
+        defer { _ = Darwin.signal(SIGTTOU, previousHandler) }
+        return Darwin.tcsetpgrp(fileDescriptor, processGroup) == 0
+    }
+
+    private static func currentErrorDescription() -> String {
+        errorDescription(errno)
+    }
+
+    private static func errorDescription(_ errorNumber: Int32) -> String {
+        String(cString: strerror(errorNumber))
+    }
+}
+
 private func runTopgrade() -> Int32 {
     do {
         guard let executable = resolvedTopgradeExecutable() else {
@@ -145,6 +219,20 @@ private func runTopgrade() -> Int32 {
         process.standardError = FileHandle.standardError
         try process.run()
 
+        let foregroundLease: TerminalForegroundLease?
+        do {
+            foregroundLease = try TerminalForegroundLease.acquire(for: process)
+        } catch {
+            let childProcessGroup = Darwin.getpgid(process.processIdentifier)
+            if childProcessGroup > 0 && childProcessGroup != Darwin.getpgrp() {
+                _ = Darwin.kill(-childProcessGroup, SIGKILL)
+            } else if process.isRunning {
+                _ = Darwin.kill(process.processIdentifier, SIGKILL)
+            }
+            process.waitUntilExit()
+            throw error
+        }
+
         let defaults = AppIdentity.defaults
         defaults.set(Date(), forKey: AppIdentity.lastSuccessfulLaunchKey)
         defaults.removeObject(forKey: AppIdentity.lastLaunchErrorKey)
@@ -154,6 +242,12 @@ private func runTopgrade() -> Int32 {
         process.waitUntilExit()
         let status = process.terminationStatus
         withExtendedLifetime(runLock) {}
+        do {
+            try foregroundLease?.restore()
+        } catch {
+            fputs("Topgrade Menu: \(error.localizedDescription)\n", stderr)
+            return 75
+        }
         print("\nTopgrade exited with status \(status).")
         pauseBeforeClosing()
         return status

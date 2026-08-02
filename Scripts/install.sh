@@ -6,6 +6,8 @@ source_dir=${script_dir:h}
 source_app="$source_dir/.build/Topgrade Menu.app"
 destination_dir="$HOME/Applications"
 destination_app="$destination_dir/Topgrade Menu.app"
+ghostty_alias="$HOME/.TopgradeMenu.app"
+ghostty_alias_target="Applications/Topgrade Menu.app"
 seed_used_now=false
 terminal_selection=""
 register_login=true
@@ -13,6 +15,7 @@ fresh_install=true
 prior_running=false
 backup_app=""
 destination_touched=false
+ghostty_alias_created=false
 install_complete=false
 
 while (( $# > 0 )); do
@@ -44,6 +47,12 @@ fi
 rollback_if_needed() {
     local exit_status=$?
     if (( exit_status != 0 )) && [[ "$install_complete" != true ]]; then
+        if [[ "$ghostty_alias_created" == true \
+            && -L "$ghostty_alias" \
+            && "$(/usr/bin/readlink "$ghostty_alias")" == "$ghostty_alias_target" ]]; then
+            /bin/rm "$ghostty_alias"
+        fi
+
         if [[ "$destination_touched" == true && -e "$destination_app" ]]; then
             if [[ -x "$destination_app/Contents/MacOS/TopgradeMenu" ]]; then
                 "$destination_app/Contents/MacOS/TopgradeMenu" --unregister-login || true
@@ -90,6 +99,15 @@ rollback_if_needed() {
 }
 trap rollback_if_needed EXIT
 
+if [[ -e "$ghostty_alias" || -L "$ghostty_alias" ]]; then
+    if [[ ! -L "$ghostty_alias" \
+        || "$(/usr/bin/readlink "$ghostty_alias")" != "$ghostty_alias_target" ]]; then
+        /usr/bin/printf '%s\n' \
+            "Installation stopped because $ghostty_alias already exists and is not the expected app alias." >&2
+        exit 1
+    fi
+fi
+
 "$script_dir/build-app.sh"
 /bin/mkdir -p "$destination_dir"
 
@@ -132,6 +150,15 @@ fi
 destination_touched=true
 /usr/bin/ditto "$source_app" "$destination_app"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$destination_app"
+
+if [[ ! -L "$ghostty_alias" ]]; then
+    /bin/ln -s "$ghostty_alias_target" "$ghostty_alias"
+    ghostty_alias_created=true
+fi
+if [[ ! -x "$ghostty_alias/Contents/MacOS/TopgradeMenu" ]]; then
+    /usr/bin/printf '%s\n' 'The Ghostty runner alias does not resolve to the installed app.' >&2
+    exit 1
+fi
 
 if [[ -n "$terminal_selection" ]]; then
     "$destination_app/Contents/MacOS/TopgradeMenu" --set-terminal "$terminal_selection"
